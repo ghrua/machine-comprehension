@@ -23,7 +23,6 @@ from __future__ import print_function
 import os
 import re
 import sys
-import time
 
 import numpy as np
 from tqdm import *
@@ -231,15 +230,15 @@ def questions_to_token_ids(data_path, vocab_fname, vocab_size):
         data_to_token_ids(fname, fname + ".ids%s" % vocab_size, vocab)
 
 
-def prepare_data(data_dir, dataset_name, vocab_size):
+def prepare_data(data_dir, output_dir, dataset_name, vocab_size):
     train_path = os.path.join(data_dir, dataset_name, 'questions', 'training')
 
-    context_fname = os.path.join(data_dir, dataset_name, '%s.context' % dataset_name)
-    vocab_fname = os.path.join(data_dir, dataset_name, '%s.vocab%s' % (dataset_name, vocab_size))
+    context_fname = os.path.join(output_dir, dataset_name, '%s.context' % dataset_name)
+    vocab_fname = os.path.join(output_dir, dataset_name, '%s.vocab%s' % (dataset_name, vocab_size))
 
     if gfile.Exists(context_fname):
         counter = build_counter_from_context(context_fname)
-    else
+    else:
         counter = get_the_counter(data_dir, context_fname)
     print(" [*] Skip combining all contexts")
 
@@ -260,7 +259,7 @@ def load_vocab(data_dir, dataset_name, vocab_size):
 
 
 def load_dataset(data_dir, dataset_name, vocab_size):
-    train_files = glob(os.path.join(data_dir, dataset_name, "questions",
+    train_files = gfile.Glob(os.path.join(data_dir, dataset_name, "questions",
                                     "training", "*.question.ids%s_*" % (vocab_size)))
     max_idx = len(train_files)
     for idx, fname in enumerate(train_files):
