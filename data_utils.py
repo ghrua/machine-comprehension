@@ -16,23 +16,20 @@
 # ==============================================================================
 
 """Utilities for downloading data from WMT, tokenizing, vocabularies."""
-from __future__ import absolute_import
-from __future__ import division
-from __future__ import print_function
-
 import os
 import re
 import sys
+import argparse
 
 import numpy as np
 from tqdm import *
 from datetime import datetime
-from collections import defaultdict, Counter
+from collections import Counter
 from nltk.corpus import stopwords
 from tensorflow.python.platform import gfile
 
 # find the words
-_WORD = re.compile("\w+")
+_WORD = re.compile("@?\w+")
 # Regular expressions used to tokenize.
 _WORD_SPLIT = re.compile("([.,!?\"':;)(])")
 _DIGIT_RE = re.compile(r"\d")
@@ -57,8 +54,7 @@ def basic_tokenizer(sentence):
     return [w for w in words if w not in stopwords.words("english")]
 
 
-def create_vocabulary(vocabulary_path, counter, max_vocabulary_size,
-                      tokenizer=None, normalize_digits=True):
+def create_vocabulary(vocabulary_path, counter, max_vocabulary_size):
     """Create vocabulary file (if it does not exist yet) from data file.
 
     Data file is assumed to contain one sentence per line. Each sentence is
@@ -79,7 +75,7 @@ def create_vocabulary(vocabulary_path, counter, max_vocabulary_size,
         print("[{}] Creating vocabulary".format(datetime.now()))
         vocab, _ = zip(*counter.most_common(max_vocabulary_size))
         np.save(vocabulary_path, vocab)
-        print("[{}] Vocabulary is saved at" % (datetime.now(), vocabulary_path))
+        print("[{}] Vocabulary is saved at: {}".format(datetime.now(), vocabulary_path))
 
 
 def initialize_vocabulary(vocabulary_path):
@@ -103,14 +99,14 @@ def initialize_vocabulary(vocabulary_path):
     """
     if gfile.Exists(vocabulary_path):
         vocab = np.load(vocabulary_path)
-        s2i = dict(zip(vocab, range(len(vocab))))
+        s2i = dict(zip(vocab, range(2, 2 + len(vocab))))
         return s2i, list(vocab)
     else:
-        raise ValueError("Vocabulary file %s not found.", vocabulary_path)
+        raise ValueError("Vocabulary file %s not found." % vocabulary_path)
 
 
 def sentence_to_token_ids(sentence, vocabulary,
-                          tokenizer=None, normalize_digits=True):
+                          tokenizer=None, normalize_digits=False):
     """Convert a string to list of integers representing token-ids.
 
     For example, a sentence "I have a dog" may become tokenized into
@@ -137,8 +133,7 @@ def sentence_to_token_ids(sentence, vocabulary,
     return [vocabulary.get(re.sub(_DIGIT_RE, "0", w), UNK_ID) for w in words]
 
 
-def data_to_token_ids(data_path, target_path, vocab,
-                      tokenizer=None, normalize_digits=True):
+def data_to_token_ids(data_path, vocab):
     """Tokenize data file and turn into token-ids using given vocabulary file.
 
     This function loads data line-by-line from data_path, calls the above
@@ -156,30 +151,12 @@ def data_to_token_ids(data_path, target_path, vocab,
       counetr: a Counter() instance get from the data
     """
     with gfile.GFile(data_path, mode="r") as data_file:
-        num = 0
         results = []
-        for line in data_file:
-            if num == 0:
-                results.append(line)
-            elif num == 4:
-                entity, ans = line.split(":", 1)
-                try:
-                    results.append("%s:%s" % (vocab[entity[:]], ans))
-                except Exception:
-                    continue
-            else:
-                token_ids = sentence_to_token_ids(line, vocab, tokenizer,
-                                                  normalize_digits)
-                results.append(" ".join([str(tok) for tok in token_ids]) + "\n")
-            if line == "\n":
-                num += 1
-
-        try:
-            len_d, len_q = len(results[2].split()), len(results[4].split())
-        except Exception:
-            return
-        with gfile.GFile("%s_%s" % (target_path, len_d + len_q), mode="w") as tokens_file:
-            tokens_file.writelines(results)
+        data = data_file.read()
+        seq = data.split("\n\n")
+        for it in range(1, 3):
+            results.append(sentence_to_token_ids(seq[it], vocab))
+        return tuple(results)
 
 
 def build_counter_from_context(context_fname):
@@ -196,7 +173,7 @@ def build_counter_from_context(context_fname):
         for line in context:
             counter.update(basic_tokenizer(line))
     print("Done...")
-    return Counter
+    return counter
 
 
 def get_the_counter(dir_name, context_fname):
@@ -208,48 +185,48 @@ def get_the_counter(dir_name, context_fname):
         counter: an instance of collection.Counter(), which stores the words and its frequency in the data
     """
     counter = Counter()
-    fout = open(context_fname, 'wb')
+    fout = open(context_fname, 'w')
     for fname in tqdm(gfile.Glob(os.path.join(dir_name, "*.question"))):
         with open(fname) as f:
             context = ""
             try:
                 lines = f.read().split("\n\n")
                 context += lines[1] + " "
+                context += lines[2] + " "
                 context += lines[4].replace(":", " ") + " "
             except Exception:
                 print(" [!] Error occurred for {}".format(fname))
+                continue
             fout.write(context)
             counter.update(basic_tokenizer(context))
     print(" [{}] Context is writing at: {}".format(datetime.now(), context_fname))
+    fout.close()
     return counter
 
 
-def questions_to_token_ids(data_path, vocab_fname, vocab_size):
-    vocab, _ = initialize_vocabulary(vocab_fname)
-    for fname in tqdm(gfile.Glob(os.path.join(data_path, "*.question"))):
-        data_to_token_ids(fname, fname + ".ids%s" % vocab_size, vocab)
+def questions_to_token_ids(files, vocab):
+    ret = []
+    for it in tqdm(files):
+        ret.append(data_to_token_ids(it, vocab))
+    return tuple(ret)
 
 
 def prepare_data(data_dir, output_dir, dataset_name, vocab_size):
-    train_path = os.path.join(data_dir, dataset_name, 'questions', 'training')
-
-    context_fname = os.path.join(output_dir, dataset_name, '%s.context' % dataset_name)
-    vocab_fname = os.path.join(output_dir, dataset_name, '%s.vocab%s' % (dataset_name, vocab_size))
+    context_fname = os.path.join(output_dir, '%s.context' % dataset_name)
+    vocab_fname = os.path.join(output_dir, '%s.vocab%s' % (dataset_name, str(vocab_size)))
 
     if gfile.Exists(context_fname):
         counter = build_counter_from_context(context_fname)
     else:
         counter = get_the_counter(data_dir, context_fname)
     print(" [*] Skip combining all contexts")
+    print(len(counter))
 
     if not os.path.exists(vocab_fname):
         print(" [*] Create vocab from %s to %s ..." % (context_fname, vocab_fname))
         create_vocabulary(vocab_fname, counter, vocab_size)
     else:
         print(" [*] Skip creating vocab")
-
-    print(" [*] Convert data in %s into vocab indicies..." % (train_path))
-    questions_to_token_ids(train_path, vocab_fname, vocab_size)
 
 
 def load_vocab(data_dir, dataset_name, vocab_size):
@@ -258,24 +235,11 @@ def load_vocab(data_dir, dataset_name, vocab_size):
     return initialize_vocabulary(vocab_fname)
 
 
-def load_dataset(data_dir, dataset_name, vocab_size):
-    train_files = gfile.Glob(os.path.join(data_dir, dataset_name, "questions",
-                                    "training", "*.question.ids%s_*" % (vocab_size)))
-    max_idx = len(train_files)
-    for idx, fname in enumerate(train_files):
-        with open(fname) as f:
-            yield f.read().split("\n\n"), idx, max_idx
-
-
 if __name__ == '__main__':
-    if len(sys.argv) < 3:
-        print(" [*] usage: python data_utils.py DATA_DIR DATASET_NAME VOCAB_SIZE")
-    else:
-        data_dir = sys.argv[1]
-        dataset_name = sys.argv[2]
-        if len(sys.argv) > 3:
-            vocab_size = sys.argv[3]
-        else:
-            vocab_size = 100000
-
-        prepare_data(data_dir, dataset_name, int(vocab_size))
+    parser = argparse.ArgumentParser()
+    parser.add_argument("-d", "--data_dir", help="语料所在目录")
+    parser.add_argument("-o", "--out_dir", help="输出目录")
+    parser.add_argument("-s", "--set", help="数据集名称")
+    parser.add_argument("-v", "--vocab_size", help="字典大小", type=int)
+    args = parser.parse_args()
+    prepare_data(args.data_dir, args.out_dir, args.set, args.vocab_size)

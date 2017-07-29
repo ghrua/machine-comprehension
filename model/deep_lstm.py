@@ -76,3 +76,4 @@ class DeepLSTM:
         )
         _, loss, predictions = sess.run([self.train_op, self.loss, tf.argmax(self.pred, axis=1)], feed_dict=feed)
         return loss, predictions
+
