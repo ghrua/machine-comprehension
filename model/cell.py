@@ -32,11 +32,10 @@ class LSTMCell(tf.contrib.rnn.RNNCell):
 
     def __call__(self, inputs, state, scope=None):
         c, h = state
-        scope = scope or type(self).__name__
-        w4m = linear([inputs, h, c], 4 * self._state_size, scope)
-        print("hello")
-        f, i, j, o = tf.split(w4m, self._state_size, axis=1)
+        w3m = linear([inputs, h, c], 3 * self._state_size, scope="FIJ_GATE")
+        f, i, j = tf.split(w3m, [self._state_size]*3, axis=1)
         new_c = c * tf.sigmoid(f + self._forget_bias) + tf.tanh(j) * tf.sigmoid(i)
+        o = linear([inputs, h, new_c], self._state_size, scope="OUT_GATE")
         new_h = tf.tanh(new_c) * tf.sigmoid(o)
         return new_h, LSTMStateTuple(new_c, new_h)
 
