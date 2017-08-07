@@ -154,9 +154,9 @@ def data_to_token_ids(data_path, vocab):
         results = []
         data = data_file.read()
         seq = data.split("\n\n")
-        for it in range(1, 3):
+        for it in range(1, 4):
             results.append(sentence_to_token_ids(seq[it], vocab))
-        return tuple(results)
+        return results
 
 
 def build_counter_from_context(context_fname):
@@ -206,9 +206,9 @@ def get_the_counter(dir_name, context_fname):
 
 def questions_to_token_ids(files, vocab):
     ret = []
-    for it in tqdm(files):
+    for it in files:
         ret.append(data_to_token_ids(it, vocab))
-    return tuple(ret)
+    return ret
 
 
 def prepare_data(data_dir, output_dir, dataset_name, vocab_size):
@@ -229,8 +229,8 @@ def prepare_data(data_dir, output_dir, dataset_name, vocab_size):
         print(" [*] Skip creating vocab")
 
 
-def load_vocab(data_dir, dataset_name, vocab_size):
-    vocab_fname = os.path.join(data_dir, dataset_name, "%s.vocab%s" % (dataset_name, vocab_size))
+def load_vocab(data_dir, vocab_size):
+    vocab_fname = os.path.join(data_dir, "vocab%s.npy" % vocab_size)
     print(" [*] Loading vocab from %s ..." % vocab_fname)
     return initialize_vocabulary(vocab_fname)
 

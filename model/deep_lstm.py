@@ -1,15 +1,16 @@
 import tensorflow as tf
+import numpy as np
 from tensorflow.contrib import rnn
 from tensorflow.contrib.layers import xavier_initializer
 
-from .cell import LSTMCell
+from .cell import LSTMCell, MultiLSTMCell
 
 
 class DeepLSTM:
     def __init__(self, config):
         self.config = config
         self.add_placeholders()
-        self.pred, self.sce_loss, self.nce_loss, self.train_op = self.build_graph()
+        self.pred, self.loss, self.train_op = self.build_graph()
 
     def add_placeholders(self):
         self.input_placeholder = tf.placeholder(tf.int32, [None, None])
@@ -35,45 +36,63 @@ class DeepLSTM:
         return embeddings
 
     def generate_cell(self):
+        return rnn.DropoutWrapper(rnn.BasicLSTMCell(self.config.state_size), state_keep_prob=self.state_keep_prob)
+
+    #        return rnn.DropoutWrapper(LSTMCell(self.config.state_size), state_keep_prob=self.state_keep_prob)
+    def user_defined_cell(self):
         return rnn.DropoutWrapper(LSTMCell(self.config.state_size), state_keep_prob=self.state_keep_prob)
 
     def build_graph(self):
         x = self.add_embedding()
-        stack_cells = [self.generate_cell() for _ in range(self.config.depth)]
+        cells = [self.generate_cell() for _ in range(self.config.depth)]
+        stack_cells = MultiLSTMCell(cells)
         _, state = tf.nn.dynamic_rnn(stack_cells, x, sequence_length=self.sequence_length, dtype=tf.float32)
-        h = tf.concat([it[0] for it in state], axis=1)
+        h = tf.concat([it[0] for it in state], axis=1, name="h")
         w_0 = tf.get_variable("w_0", [self.config.vocab_size, self.config.state_size * self.config.depth],
                               initializer=xavier_initializer())
+        """
+        stack_cells = self.generate_cell()  # MultiLSTMCell(cells)
+        _, state = tf.nn.dynamic_rnn(stack_cells, x, sequence_length=self.sequence_length, dtype=tf.float32)
+        self.h, _ = state
+        w_0 = tf.get_variable("w_0", [self.config.vocab_size, self.config.state_size],
+                              initializer=xavier_initializer())
+        """
         b_0 = tf.get_variable("b_0", [self.config.vocab_size], dtype=tf.float32, initializer=tf.zeros_initializer())
         pred = tf.matmul(h, w_0, transpose_b=True) + b_0
-        sce_loss = tf.nn.sparse_softmax_cross_entropy_with_logits(
-            labels=self.labels_placeholder,
-            logits=self.pred,
-            name='ce_loss'
-        )
+
+        """
         nce_loss = tf.nn.nce_loss(
             weights=w_0,
             biases=b_0,
             labels=tf.expand_dims(self.labels_placeholder, 1),
             inputs=h,
-            num_sampled=self.num_sampled,
+            num_sampled=self.config.num_sampled,
             num_classes=self.config.vocab_size,
             partition_strategy="div",
             name="nce_loss"
         )
-        train_op = tf.train.AdadeltaOptimizer(self.config.lr).minimize(self.nce_loss)
-        return pred, sce_loss, nce_loss, train_op
+        """
 
-    def predict_on_batch(self, sess, inputes_batch, sequence_length):
-        feed = self.create_feed_dict(inputs_batch=inputes_batch, sequence_length=sequence_length)
+        loss = tf.nn.sparse_softmax_cross_entropy_with_logits(
+            logits=pred,
+            labels=self.labels_placeholder,
+            name="loss"
+        )
+        train_op = tf.train.AdadeltaOptimizer(self.config.lr).minimize(loss)
+        return pred, loss, train_op
+
+    def predict_on_batch(self, sess, inputs_batch, sequence_length):
+        feed = self.create_feed_dict(inputs_batch=inputs_batch, sequence_length=sequence_length)
         predictions = sess.run(tf.argmax(self.pred, axis=1), feed_dict=feed)
         return predictions
 
-    def train_on_batch(self, sess, inputs_batch, sequence_length, keep_prob, labels_batch):
-        feed = self.create_feed_dict(
-            inputs_batch=inputs_batch, sequence_length=sequence_length, state_keep_prob=keep_prob,
-            labels_batch=labels_batch
-        )
-        _, loss, predictions = sess.run([self.train_op, self.loss, tf.argmax(self.pred, axis=1)], feed_dict=feed)
-        return loss, predictions
+    def check(self):
+        pass
 
+    def train_on_batch(self, sess, inputs_batch, sequence_length, labels_batch, keep_prob=0.1):
+        feed = self.create_feed_dict(
+            inputs_batch=inputs_batch, sequence_length=sequence_length,
+            state_keep_prob=keep_prob, labels_batch=labels_batch
+        )
+        _, loss = sess.run([self.train_op, self.loss], feed_dict=feed)
+        return loss
