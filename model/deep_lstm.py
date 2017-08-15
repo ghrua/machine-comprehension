@@ -1,5 +1,4 @@
 import tensorflow as tf
-import numpy as np
 from tensorflow.contrib import rnn
 from tensorflow.contrib.layers import xavier_initializer
 
@@ -28,24 +27,20 @@ class DeepLSTM:
             feed_dict[self.labels_placeholder] = labels_batch
         return feed_dict
 
-    def add_embedding(self):
-        embed = tf.get_variable(
-            "word_embedding", shape=[self.config.vocab_size, self.config.embed_size], initializer=xavier_initializer()
-        )
-        embeddings = tf.nn.embedding_lookup(embed, self.input_placeholder)
-        return embeddings
-
     def generate_cell(self):
-        return rnn.DropoutWrapper(rnn.BasicLSTMCell(self.config.state_size), state_keep_prob=self.state_keep_prob)
+        return rnn.DropoutWrapper(rnn.LSTMCell(self.config.state_size, True), output_keep_prob=self.state_keep_prob)
 
     #        return rnn.DropoutWrapper(LSTMCell(self.config.state_size), state_keep_prob=self.state_keep_prob)
     def user_defined_cell(self):
         return rnn.DropoutWrapper(LSTMCell(self.config.state_size), state_keep_prob=self.state_keep_prob)
 
     def build_graph(self):
-        x = self.add_embedding()
+        embed = tf.get_variable(
+            "word_embedding", shape=[self.config.vocab_size, self.config.embed_size], initializer=xavier_initializer()
+        )
+        x = tf.nn.embedding_lookup(embed, self.input_placeholder)
         cells = [self.generate_cell() for _ in range(self.config.depth)]
-        stack_cells = MultiLSTMCell(cells)
+        stack_cells = rnn.MultiRNNCell(cells)
         _, state = tf.nn.dynamic_rnn(stack_cells, x, sequence_length=self.sequence_length, dtype=tf.float32)
         h = tf.concat([it[0] for it in state], axis=1, name="h")
         w_0 = tf.get_variable("w_0", [self.config.vocab_size, self.config.state_size * self.config.depth],
@@ -78,7 +73,7 @@ class DeepLSTM:
             labels=self.labels_placeholder,
             name="loss"
         )
-        train_op = tf.train.AdadeltaOptimizer(self.config.lr).minimize(loss)
+        train_op = tf.train.AdamOptimizer(self.config.lr).minimize(loss)
         return pred, loss, train_op
 
     def predict_on_batch(self, sess, inputs_batch, sequence_length):
@@ -89,10 +84,10 @@ class DeepLSTM:
     def check(self):
         pass
 
-    def train_on_batch(self, sess, inputs_batch, sequence_length, labels_batch, keep_prob=0.1):
+    def train_on_batch(self, sess, inputs_batch, sequence_length, labels_batch, keep_prob=0.2):
         feed = self.create_feed_dict(
             inputs_batch=inputs_batch, sequence_length=sequence_length,
             state_keep_prob=keep_prob, labels_batch=labels_batch
         )
-        _, loss = sess.run([self.train_op, self.loss], feed_dict=feed)
-        return loss
+        _, loss, prediction = sess.run([self.train_op, self.loss, tf.argmax(self.pred, axis=1)], feed_dict=feed)
+        return loss, prediction

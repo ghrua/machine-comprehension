@@ -16,14 +16,14 @@ from model.deep_lstm import DeepLSTM
 
 class Config:
     vocab_size = 100002
-    embed_size = 256
+    embed_size = 200
     state_size = 256
     depth = 2
-    lr = 1E-4
+    lr = 5E-4
     batch_size = 32
     num_sampled = 512
-    n_epoch = 200
-    train_steps = 512
+    n_epoch = 512
+    train_steps = 200
 
 
 class Train:
@@ -32,8 +32,10 @@ class Train:
         self.test_set = tf.gfile.Glob(join(root_dir, "test", "*.question"))
         self.training_set = tf.gfile.Glob(join(root_dir, "training", "*.question"))
         self.validation_set = tf.gfile.Glob(join(root_dir, "validation", "*.question"))
-        self.vocabulary, _ = load_vocab(root_dir, str(Config.vocab_size-2))
+        self.vocabulary, self.reverse_vocabulary = load_vocab(root_dir, str(Config.vocab_size - 2))
+        self.reverse_vocabulary = ['BAR_', 'UNK_'] + self.reverse_vocabulary
         self.debug = debug
+
     """
     def test_labels(self):
         _, _, a = zip(*questions_to_token_ids(self.training_set, self.vocabulary))
@@ -46,21 +48,19 @@ class Train:
         if size:
             size = self.config.batch_size
         else:
-            size = len(data_set) // 10
+            size = 5 * self.config.batch_size
         samples = random.sample(list(data_set), size)
         p, q, a = zip(*questions_to_token_ids(samples, self.vocabulary))
-        inputs = [q[i]+[0]+p[i] for i in range(size)]
+        inputs = [q[i] + [0] + p[i] for i in range(size)]
         length = [len(it) for it in inputs]
         max_len = max(length)
         inputs = padding(inputs, max_len)
+        for row in inputs:
+            for col in row:
+                if col < 0 or col >= Config.vocab_size:
+                    print("BUG!!!!!! index: {}".format(col))
         labels = np.array(a).flatten()
         length = np.array(length)
-#        print(inputs)
-#        print(length)
-#        print(labels)
-        assert not np.any(np.isnan(inputs))
-        assert not np.any(np.isnan(length))
-        assert not np.any(np.isnan(labels))
         return inputs, length, labels
 
     def train(self, mc_model, model_output):
@@ -80,7 +80,7 @@ class Train:
                     pbar = tqdm(range(self.config.train_steps), desc="{} epoch".format(epoch))
                     for _ in pbar:
                         inputs, length, labels = self.gen_file(data_set)
-                        loss = model.train_on_batch(session, inputs, length, labels)
+                        loss, _ = model.train_on_batch(session, inputs, length, labels)
                         pbar.set_description("loss: {:.2f}".format(np.mean(loss)))
                     inputs, length, labels = self.gen_file(self.test_set, False)
                     prediction = model.predict_on_batch(session, inputs, length)
