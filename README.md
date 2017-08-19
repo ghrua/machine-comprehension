@@ -29,7 +29,7 @@ python scripts/convert2index.py -r /path/to/data/cnn/questions/training -d /your
 开始训练
 
 ```python
-python scripts/train.py
+python scripts/train.py -r /your/directory/
 ```
 ## 说明
 模型参考
