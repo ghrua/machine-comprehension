@@ -18,14 +18,12 @@
 """Utilities for downloading data from WMT, tokenizing, vocabularies."""
 import os
 import re
-import sys
 import argparse
 
 import numpy as np
 from tqdm import *
 from datetime import datetime
 from collections import Counter
-from nltk.corpus import stopwords
 from tensorflow.python.platform import gfile
 
 # find the words
@@ -41,7 +39,18 @@ BAR_ID = 0
 UNK_ID = 1
 _START_VOCAB = [_BAR, _UNK]
 
-cachedStopWords = stopwords.words("english")
+cachedStopWords = [
+    'i', 'me', 'my', 'myself', 'we', 'our', 'ours', 'ourselves', 'you', 'your', 'yours', 'yourself',
+    'yourselves', 'he', 'him', 'his', 'himself', 'she', 'her', 'hers', 'herself', 'it', 'its', 'itself', 'they', 'them',
+    'their', 'theirs', 'themselves', 'what', 'which', 'who', 'whom', 'this', 'that', 'these', 'those', 'am', 'is',
+    'are', 'was', 'were', 'be', 'been', 'being', 'have', 'has', 'had', 'having', 'do', 'does', 'did', 'doing', 'a',
+    'an', 'the', 'and', 'but', 'if', 'or', 'because', 'as', 'until', 'while', 'of', 'at', 'by', 'for', 'with', 'about',
+    'against', 'between', 'into', 'through', 'during', 'before', 'after', 'above', 'below', 'to', 'from', 'up', 'down',
+    'in', 'out', 'on', 'off', 'over', 'under', 'again', 'further', 'then', 'once', 'here', 'there', 'when', 'where',
+    'why', 'how', 'all', 'any', 'both', 'each', 'few', 'more', 'most', 'other', 'some', 'such', 'no', 'nor', 'not',
+    'only', 'own', 'same', 'so', 'than', 'too', 'very', 's', 't', 'can', 'will', 'just', 'don', 'should', 'now', 'd',
+    'll', 'm', 'o', 're', 've', 'y', 'ain', 'aren', 'couldn', 'didn', 'doesn', 'hadn', 'hasn', 'haven', 'isn', 'ma',
+    'mightn', 'mustn', 'needn', 'shan', 'shouldn', 'wasn', 'weren', 'won', 'wouldn']
 
 
 def tokenizer(text):
@@ -206,12 +215,14 @@ def get_the_counter(dir_name, context_fname):
 
 def questions_to_token_ids(files, vocab):
     ret = []
+    if not isinstance(files, list):
+        files = [files]
     for it in files:
         ret.append(data_to_token_ids(it, vocab))
     return ret
 
 
-def prepare_data(data_dir, output_dir, dataset_name, vocab_size):
+def gen_vocabulary(data_dir, output_dir, dataset_name, vocab_size):
     context_fname = os.path.join(output_dir, '%s.context' % dataset_name)
     vocab_fname = os.path.join(output_dir, '%s.vocab%s' % (dataset_name, str(vocab_size)))
 
@@ -242,4 +253,4 @@ if __name__ == '__main__':
     parser.add_argument("-s", "--set", help="数据集名称")
     parser.add_argument("-v", "--vocab_size", help="字典大小", type=int)
     args = parser.parse_args()
-    prepare_data(args.data_dir, args.out_dir, args.set, args.vocab_size)
+    gen_vocabulary(args.data_dir, args.out_dir, args.set, args.vocab_size)

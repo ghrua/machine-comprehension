@@ -4,13 +4,15 @@ import numpy as np
 from tqdm import tqdm
 import argparse
 import tensorflow as tf
+from multiprocessing import Pool
+from sklearn.externals import joblib
 from os.path import abspath, dirname, join, exists
 from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score
 
 sys.path.insert(0, dirname(dirname(abspath(__file__))))
 
 from utils import padding
-from data_utils import questions_to_token_ids, load_vocab
+from data_utils import load_vocab
 from model.deep_lstm import DeepLSTM
 
 
@@ -30,10 +32,13 @@ class Train:
     def __init__(self, root_dir, config, debug=True):
         self.config = config
         self.test_set = tf.gfile.Glob(join(root_dir, "test", "*.question"))
-        self.training_set = tf.gfile.Glob(join(root_dir, "training", "*.question"))
-        self.validation_set = tf.gfile.Glob(join(root_dir, "validation", "*.question"))
+        if debug:
+            self.validation_set = tf.gfile.Glob(join(root_dir, "validation", "*.question"))
+        else:
+            self.training_set = tf.gfile.Glob(join(root_dir, "training", "*.question"))
         self.vocabulary, self.reverse_vocabulary = load_vocab(root_dir, str(Config.vocab_size - 2))
         self.reverse_vocabulary = ['BAR_', 'UNK_'] + self.reverse_vocabulary
+        self.pool = Pool(4)
         self.debug = debug
 
     """
@@ -44,23 +49,19 @@ class Train:
                 print(a[i], self.training_set[i])
     """
 
+    def load_file(self, files):
+        ret = self.pool.map(joblib.load, files)
+        return ret
+
     def gen_file(self, data_set, size=True):
         if size:
             size = self.config.batch_size
         else:
             size = 5 * self.config.batch_size
         samples = random.sample(list(data_set), size)
-        p, q, a = zip(*questions_to_token_ids(samples, self.vocabulary))
-        inputs = [q[i] + [0] + p[i] for i in range(size)]
-        length = [len(it) for it in inputs]
+        inputs, length, labels = zip(*self.load_file(samples))
         max_len = max(length)
         inputs = padding(inputs, max_len)
-        for row in inputs:
-            for col in row:
-                if col < 0 or col >= Config.vocab_size:
-                    print("BUG!!!!!! index: {}".format(col))
-        labels = np.array(a).flatten()
-        length = np.array(length)
         return inputs, length, labels
 
     def train(self, mc_model, model_output):
@@ -76,12 +77,19 @@ class Train:
             saver = tf.train.Saver()
             with tf.Session() as session:
                 session.run(init)
+                session.graph.finalize()
                 for epoch in range(self.config.n_epoch):
                     pbar = tqdm(range(self.config.train_steps), desc="{} epoch".format(epoch))
+                    avg_loss, avg_acc = 0.0, 0.0
                     for _ in pbar:
                         inputs, length, labels = self.gen_file(data_set)
-                        loss, _ = model.train_on_batch(session, inputs, length, labels)
-                        pbar.set_description("loss: {:.2f}".format(np.mean(loss)))
+                        loss, prediction = model.train_on_batch(session, inputs, length, labels)
+                        mean_loss = np.mean(loss)
+                        acc = accuracy_score(labels, prediction)
+                        avg_loss += mean_loss
+                        avg_acc += acc
+                        pbar.set_description("loss/acc: {:.2f}/{:.2f}".format(mean_loss, acc))
+                    print("avg_loss/avg_acc: {:.2f}/{:.2f} on this epoch".format(avg_loss/self.config.train_steps, avg_acc/self.config.train_steps))
                     inputs, length, labels = self.gen_file(self.test_set, False)
                     prediction = model.predict_on_batch(session, inputs, length)
                     f1 = f1_score(labels, prediction, average='micro')

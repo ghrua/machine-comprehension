@@ -1,4 +1,5 @@
 import tensorflow as tf
+import numpy as np
 from tensorflow.contrib import rnn
 from tensorflow.contrib.layers import xavier_initializer
 
@@ -78,16 +79,13 @@ class DeepLSTM:
 
     def predict_on_batch(self, sess, inputs_batch, sequence_length):
         feed = self.create_feed_dict(inputs_batch=inputs_batch, sequence_length=sequence_length)
-        predictions = sess.run(tf.argmax(self.pred, axis=1), feed_dict=feed)
-        return predictions
-
-    def check(self):
-        pass
+        predictions = sess.run(self.pred, feed_dict=feed)
+        return np.argmax(predictions, axis=1)
 
     def train_on_batch(self, sess, inputs_batch, sequence_length, labels_batch, keep_prob=0.2):
         feed = self.create_feed_dict(
             inputs_batch=inputs_batch, sequence_length=sequence_length,
             state_keep_prob=keep_prob, labels_batch=labels_batch
         )
-        _, loss, prediction = sess.run([self.train_op, self.loss, tf.argmax(self.pred, axis=1)], feed_dict=feed)
-        return loss, prediction
+        _, loss, prediction = sess.run([self.train_op, self.loss, self.pred], feed_dict=feed)
+        return loss, np.argmax(prediction, axis=1)
